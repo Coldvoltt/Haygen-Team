@@ -1,8 +1,8 @@
 import httpx
 import random
-from functools import lru_cache
 
 BASE_URL = "https://api.heygen.com"
+UPLOAD_URL = "https://upload.heygen.com"
 
 
 class HeyGenService:
@@ -53,8 +53,9 @@ class HeyGenService:
 
     def pick_random_avatars(self, avatars: list[dict], count: int) -> list[dict]:
         """Pick `count` random unique avatars from the list."""
+        if count <= 0:
+            return []
         if count > len(avatars):
-            # Allow duplicates if we need more than available
             return random.choices(avatars, k=count)
         return random.sample(avatars, k=count)
 
@@ -72,22 +73,59 @@ class HeyGenService:
             return voices[0]["voice_id"]
         raise ValueError("No voices available")
 
+    async def upload_talking_photo(self, image_bytes: bytes, content_type: str) -> dict:
+        """Upload an image to HeyGen as a talking photo.
+
+        Returns dict with 'talking_photo_id' and 'talking_photo_url'.
+        """
+        headers = {
+            "X-Api-Key": self.api_key,
+            "Content-Type": content_type,
+        }
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{UPLOAD_URL}/v1/talking_photo",
+                headers=headers,
+                content=image_bytes,
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        if data.get("code") != 100:
+            raise ValueError(f"Talking photo upload failed: {data}")
+
+        return data["data"]
+
     async def generate_video(
         self,
-        avatar_id: str,
         voice_id: str,
         input_text: str,
         title: str = "Team Intro",
+        avatar_id: str | None = None,
+        talking_photo_id: str | None = None,
     ) -> str:
-        """Create a video with the given avatar speaking the input text. Returns video_id."""
+        """Create a video. Supply either avatar_id OR talking_photo_id."""
+        if talking_photo_id:
+            character = {
+                "type": "talking_photo",
+                "talking_photo_id": talking_photo_id,
+                "talking_photo_style": "square",
+                "talking_style": "stable",
+            }
+        elif avatar_id:
+            character = {
+                "type": "avatar",
+                "avatar_id": avatar_id,
+                "avatar_style": "normal",
+            }
+        else:
+            raise ValueError("Must provide either avatar_id or talking_photo_id")
+
         payload = {
             "video_inputs": [
                 {
-                    "character": {
-                        "type": "avatar",
-                        "avatar_id": avatar_id,
-                        "avatar_style": "normal",
-                    },
+                    "character": character,
                     "voice": {
                         "type": "text",
                         "voice_id": voice_id,

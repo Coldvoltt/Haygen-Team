@@ -3,12 +3,14 @@ import { createTeam } from "../api";
 
 export default function CreateTeam({ onTeamCreated }) {
   const [teamName, setTeamName] = useState("");
-  const [members, setMembers] = useState([{ name: "", intro_text: "" }]);
+  const [members, setMembers] = useState([
+    { name: "", intro_text: "", photo: null },
+  ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const addMember = () => {
-    setMembers([...members, { name: "", intro_text: "" }]);
+    setMembers([...members, { name: "", intro_text: "", photo: null }]);
   };
 
   const removeMember = (index) => {
@@ -22,6 +24,12 @@ export default function CreateTeam({ onTeamCreated }) {
     setMembers(updated);
   };
 
+  const updateMemberPhoto = (index, file) => {
+    const updated = [...members];
+    updated[index] = { ...updated[index], photo: file };
+    setMembers(updated);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -31,17 +39,33 @@ export default function CreateTeam({ onTeamCreated }) {
       return;
     }
 
-    const validMembers = members.filter(
-      (m) => m.name.trim() && m.intro_text.trim()
-    );
-    if (validMembers.length === 0) {
+    // Track original indices so we can map photos correctly
+    const validEntries = members
+      .map((m, i) => ({ member: m, originalIndex: i }))
+      .filter((e) => e.member.name.trim() && e.member.intro_text.trim());
+
+    if (validEntries.length === 0) {
       setError("Add at least one member with name and intro text");
       return;
     }
 
+    // Build photos map: { newIndex: File }
+    const photos = {};
+    validEntries.forEach((entry, newIndex) => {
+      if (entry.member.photo) {
+        photos[newIndex] = entry.member.photo;
+      }
+    });
+
+    // Strip photo from the JSON payload (it goes as a file)
+    const membersPayload = validEntries.map(({ member }) => ({
+      name: member.name.trim(),
+      intro_text: member.intro_text.trim(),
+    }));
+
     setLoading(true);
     try {
-      const result = await createTeam(teamName.trim(), validMembers);
+      const result = await createTeam(teamName.trim(), membersPayload, photos);
       onTeamCreated(result.team);
     } catch (err) {
       setError(err.message);
@@ -79,6 +103,30 @@ export default function CreateTeam({ onTeamCreated }) {
                 </button>
               )}
             </div>
+            <label className="photo-circle-wrapper">
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                hidden
+                onChange={(e) =>
+                  updateMemberPhoto(index, e.target.files[0] || null)
+                }
+              />
+              {member.photo ? (
+                <img
+                  className="photo-circle"
+                  src={URL.createObjectURL(member.photo)}
+                  alt="Preview"
+                />
+              ) : (
+                <div className="photo-circle photo-circle-empty">
+                  <span>+</span>
+                </div>
+              )}
+              <span className="photo-hint">
+                {member.photo ? "Change photo" : "Add photo"}
+              </span>
+            </label>
             <input
               type="text"
               value={member.name}

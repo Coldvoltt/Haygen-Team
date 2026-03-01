@@ -6,11 +6,23 @@ export async function fetchAvatars() {
   return res.json();
 }
 
-export async function createTeam(teamName, members) {
+export async function createTeam(teamName, members, photos = {}) {
+  const formData = new FormData();
+
+  // Pack text data as a JSON string
+  formData.append(
+    "team_data",
+    JSON.stringify({ team_name: teamName, members })
+  );
+
+  // Attach photo files keyed by member index
+  for (const [index, file] of Object.entries(photos)) {
+    formData.append(`photo_${index}`, file);
+  }
+
   const res = await fetch(`${API_BASE}/team`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ team_name: teamName, members }),
+    body: formData,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

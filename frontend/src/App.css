@@ -154,6 +154,45 @@
   font-size: 0.85rem;
 }
 
+/* Photo Upload Circle */
+.photo-circle-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  margin-bottom: 0.75rem;
+}
+
+.photo-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid #667eea;
+  transition: opacity 0.2s;
+}
+
+.photo-circle-wrapper:hover .photo-circle {
+  opacity: 0.8;
+}
+
+.photo-circle-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f0f0f5;
+  border-style: dashed;
+  color: #999;
+  font-size: 1.8rem;
+  font-weight: 300;
+}
+
+.photo-hint {
+  font-size: 0.75rem;
+  color: #667eea;
+  margin-top: 0.3rem;
+}
+
 .btn-remove {
   background: none;
   border: none;

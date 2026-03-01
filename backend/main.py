@@ -1,10 +1,11 @@
 import asyncio
 import logging
 import os
+import random
 import uuid
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from heygen_service import HeyGenService
@@ -12,7 +13,7 @@ from models import (
     GenerateIntroRequest,
     StoredMember,
     StoredTeam,
-    TeamCreateRequest,
+    TeamCreateData,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,8 +62,28 @@ async def get_avatars():
 
 
 @app.post("/api/team")
-async def create_team(req: TeamCreateRequest):
-    """Create a team and assign random avatars to each member."""
+async def create_team(request: Request):
+    """Create a team and assign avatars. Accepts multipart/form-data with optional photos."""
+    form = await request.form()
+
+    # Parse the JSON text data
+    team_data_str = form.get("team_data")
+    if not team_data_str:
+        raise HTTPException(status_code=400, detail="team_data is required")
+
+    try:
+        team_data = TeamCreateData.model_validate_json(team_data_str)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid team_data JSON")
+
+    # Collect photo files by member index
+    photos = {}
+    for key, value in form.items():
+        if key.startswith("photo_") and hasattr(value, "read"):
+            index = int(key.split("_")[1])
+            photos[index] = value
+
+    # Fetch HeyGen resources for fallback avatars
     try:
         avatars = await heygen.list_avatars()
         voices = await heygen.list_voices()
@@ -72,26 +93,62 @@ async def create_team(req: TeamCreateRequest):
     if not avatars:
         raise HTTPException(status_code=502, detail="No avatars available from HeyGen")
 
-    picked = heygen.pick_random_avatars(avatars, len(req.members))
+    # Only pick random avatars for members WITHOUT photos
+    members_needing_avatars = [
+        i for i in range(len(team_data.members)) if i not in photos
+    ]
+    picked_avatars = heygen.pick_random_avatars(avatars, len(members_needing_avatars))
+    avatar_iter = iter(picked_avatars)
 
     stored_members = []
-    for member, avatar in zip(req.members, picked):
-        voice_id = heygen.get_default_voice_id(avatar, voices)
-        stored_members.append(
-            StoredMember(
-                name=member.name,
-                intro_text=member.intro_text,
-                avatar_id=avatar["avatar_id"],
-                avatar_name=avatar.get("avatar_name", "Unknown"),
-                avatar_preview_image=avatar.get("preview_image_url", ""),
-                voice_id=voice_id,
+    for i, member in enumerate(team_data.members):
+        if i in photos:
+            # Upload photo to HeyGen as a talking photo
+            photo_file = photos[i]
+            image_bytes = await photo_file.read()
+            content_type = photo_file.content_type or "image/jpeg"
+
+            try:
+                tp_data = await heygen.upload_talking_photo(image_bytes, content_type)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Failed to upload photo for {member.name}: {str(e)}",
+                )
+
+            # Pick a random voice for talking photos
+            voice_id = random.choice(voices)["voice_id"] if voices else ""
+
+            stored_members.append(
+                StoredMember(
+                    name=member.name,
+                    intro_text=member.intro_text,
+                    avatar_type="talking_photo",
+                    talking_photo_id=tp_data["talking_photo_id"],
+                    avatar_preview_image=tp_data.get("talking_photo_url", ""),
+                    voice_id=voice_id,
+                )
             )
-        )
+        else:
+            # Fallback: random stock avatar
+            avatar = next(avatar_iter)
+            voice_id = heygen.get_default_voice_id(avatar, voices)
+            stored_members.append(
+                StoredMember(
+                    name=member.name,
+                    intro_text=member.intro_text,
+                    avatar_type="avatar",
+                    avatar_id=avatar["avatar_id"],
+                    avatar_name=avatar.get("avatar_name", "Unknown"),
+                    avatar_preview_image=avatar.get("preview_image_url", ""),
+                    voice_id=voice_id,
+                )
+            )
 
     team_id = str(uuid.uuid4())
     team = StoredTeam(
         team_id=team_id,
-        team_name=req.team_name,
+        team_name=team_data.team_name,
         members=stored_members,
     )
     teams_db[team_id] = team
@@ -115,13 +172,21 @@ async def _generate_all_videos(team: StoredTeam):
 async def _generate_video_for_member(member: StoredMember):
     """Generate a single member's intro video."""
     try:
-        print(f"[BG] Requesting video for {member.name} (avatar: {member.avatar_id})...")
-        video_id = await heygen.generate_video(
-            avatar_id=member.avatar_id,
-            voice_id=member.voice_id,
-            input_text=member.intro_text,
-            title=f"{member.name} - Introduction",
-        )
+        print(f"[BG] Requesting video for {member.name} (type: {member.avatar_type})...")
+        if member.avatar_type == "talking_photo":
+            video_id = await heygen.generate_video(
+                voice_id=member.voice_id,
+                input_text=member.intro_text,
+                title=f"{member.name} - Introduction",
+                talking_photo_id=member.talking_photo_id,
+            )
+        else:
+            video_id = await heygen.generate_video(
+                voice_id=member.voice_id,
+                input_text=member.intro_text,
+                title=f"{member.name} - Introduction",
+                avatar_id=member.avatar_id,
+            )
         member.video_id = video_id
         member.video_status = "pending"
         print(f"[BG] Video queued for {member.name}: video_id={video_id}")
