@@ -31,21 +31,12 @@ export async function listTeams() {
   return res.json();
 }
 
-export async function generateIntro(teamId, memberIndex) {
-  const res = await fetch(`${API_BASE}/generate-intro`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ team_id: teamId, member_index: memberIndex }),
-  });
+export async function fetchStreamingToken() {
+  const res = await fetch(`${API_BASE}/streaming-token`, { method: "POST" });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || "Failed to generate intro");
+    throw new Error(err.detail || "Failed to fetch streaming token");
   }
-  return res.json();
-}
-
-export async function getVideoStatus(videoId) {
-  const res = await fetch(`${API_BASE}/video-status/${videoId}`);
-  if (!res.ok) throw new Error("Failed to get video status");
-  return res.json();
+  const data = await res.json();
+  return data.token;
 }

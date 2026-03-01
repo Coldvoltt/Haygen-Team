@@ -1,39 +1,11 @@
-import { useState } from "react";
-import { generateIntro } from "../api";
-
-export default function MemberCard({ member, teamId, memberIndex, onPlay }) {
-  const [status, setStatus] = useState("idle");
-  const [message, setMessage] = useState("");
-
-  const handleClick = async () => {
-    if (status === "checking") return;
-
-    setMessage("");
-    setStatus("checking");
-
-    try {
-      const data = await generateIntro(teamId, memberIndex);
-
-      if (data.status === "completed" && data.video_url) {
-        setStatus("ready");
-        onPlay(member, data.video_url);
-      } else {
-        setStatus("not_ready");
-        setMessage(`${member.name} will be available shortly.`);
-      }
-    } catch {
-      setStatus("idle");
-      setMessage("Something went wrong. Try again.");
-    }
-  };
-
+export default function MemberCard({ member, onClick }) {
   return (
     <div
-      className={`member-card ${status}`}
-      onClick={handleClick}
+      className="member-card"
+      onClick={() => onClick(member)}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && handleClick()}
+      onKeyDown={(e) => e.key === "Enter" && onClick(member)}
     >
       <div className="avatar-preview">
         {member.avatar_preview_image ? (
@@ -43,19 +15,11 @@ export default function MemberCard({ member, teamId, memberIndex, onPlay }) {
             {member.name.charAt(0).toUpperCase()}
           </div>
         )}
-        {status === "checking" && (
-          <div className="loading-overlay">
-            <div className="spinner" />
-          </div>
-        )}
-        {status === "ready" && <div className="ready-badge" />}
       </div>
 
       <div className="member-info">
         <h3>{member.name}</h3>
       </div>
-
-      {message && <div className="card-message">{message}</div>}
     </div>
   );
 }

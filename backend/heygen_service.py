@@ -1,6 +1,5 @@
 import httpx
 import random
-from functools import lru_cache
 
 BASE_URL = "https://api.heygen.com"
 
@@ -16,20 +15,22 @@ class HeyGenService:
         self._voices_cache: list[dict] | None = None
 
     async def list_avatars(self, force_refresh: bool = False) -> list[dict]:
-        """Fetch available avatars from HeyGen. Results are cached."""
+        """Fetch streaming-compatible avatars from HeyGen. Results are cached."""
         if self._avatars_cache and not force_refresh:
             return self._avatars_cache
 
         async with httpx.AsyncClient() as client:
             resp = await client.get(
-                f"{BASE_URL}/v2/avatars",
+                f"{BASE_URL}/v1/streaming/avatar.list",
                 headers=self.headers,
                 timeout=30.0,
             )
             resp.raise_for_status()
             data = resp.json()
 
-        avatars = data.get("data", {}).get("avatars", [])
+        raw = data.get("data", [])
+        # data may be a list of avatars directly, or a dict with an "avatars" key
+        avatars = raw.get("avatars", []) if isinstance(raw, dict) else raw
         # Filter to non-premium avatars only
         self._avatars_cache = [a for a in avatars if not a.get("premium", False)]
         return self._avatars_cache
@@ -72,63 +73,19 @@ class HeyGenService:
             return voices[0]["voice_id"]
         raise ValueError("No voices available")
 
-    async def generate_video(
-        self,
-        avatar_id: str,
-        voice_id: str,
-        input_text: str,
-        title: str = "Team Intro",
-    ) -> str:
-        """Create a video with the given avatar speaking the input text. Returns video_id."""
-        payload = {
-            "video_inputs": [
-                {
-                    "character": {
-                        "type": "avatar",
-                        "avatar_id": avatar_id,
-                        "avatar_style": "normal",
-                    },
-                    "voice": {
-                        "type": "text",
-                        "voice_id": voice_id,
-                        "input_text": input_text,
-                        "speed": 1.0,
-                    },
-                    "background": {
-                        "type": "color",
-                        "value": "#FFFFFF",
-                    },
-                }
-            ],
-            "title": title,
-            "dimension": {"width": 1280, "height": 720},
-        }
-
+    async def create_streaming_token(self) -> str:
+        """Create a short-lived streaming token for the HeyGen Streaming Avatar SDK."""
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                f"{BASE_URL}/v2/video/generate",
+                f"{BASE_URL}/v1/streaming.create_token",
                 headers=self.headers,
-                json=payload,
-                timeout=60.0,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
-        video_id = data.get("data", {}).get("video_id")
-        if not video_id:
-            raise ValueError(f"Failed to create video: {data}")
-        return video_id
-
-    async def get_video_status(self, video_id: str) -> dict:
-        """Check the status of a video. Returns dict with status, video_url, etc."""
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{BASE_URL}/v1/video_status.get",
-                headers=self.headers,
-                params={"video_id": video_id},
+                json={},
                 timeout=30.0,
             )
             resp.raise_for_status()
             data = resp.json()
 
-        return data.get("data", {})
+        token = data.get("data", {}).get("token")
+        if not token:
+            raise ValueError(f"Failed to create streaming token: {data}")
+        return token

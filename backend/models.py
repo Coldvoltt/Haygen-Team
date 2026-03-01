@@ -11,11 +11,6 @@ class TeamCreateRequest(BaseModel):
     members: list[TeamMember]
 
 
-class GenerateIntroRequest(BaseModel):
-    team_id: str
-    member_index: int
-
-
 class StoredMember(BaseModel):
     name: str
     intro_text: str
@@ -23,9 +18,6 @@ class StoredMember(BaseModel):
     avatar_name: str
     avatar_preview_image: str
     voice_id: str
-    video_id: str | None = None
-    video_url: str | None = None
-    video_status: str | None = None
 
 
 class StoredTeam(BaseModel):

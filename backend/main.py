@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import uuid
@@ -9,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from heygen_service import HeyGenService
 from models import (
-    GenerateIntroRequest,
     StoredMember,
     StoredTeam,
     TeamCreateRequest,
@@ -96,38 +94,7 @@ async def create_team(req: TeamCreateRequest):
     )
     teams_db[team_id] = team
 
-    # Pre-generate videos for all members in the background
-    asyncio.create_task(_generate_all_videos(team))
-
     return {"team_id": team_id, "team": team}
-
-
-async def _generate_all_videos(team: StoredTeam):
-    """Fire off video generation for every member concurrently."""
-    print(f"[BG] Starting pre-generation for {len(team.members)} members in '{team.team_name}'")
-    tasks = []
-    for member in team.members:
-        tasks.append(_generate_video_for_member(member))
-    await asyncio.gather(*tasks, return_exceptions=True)
-    print(f"[BG] All generation requests sent for '{team.team_name}'")
-
-
-async def _generate_video_for_member(member: StoredMember):
-    """Generate a single member's intro video."""
-    try:
-        print(f"[BG] Requesting video for {member.name} (avatar: {member.avatar_id})...")
-        video_id = await heygen.generate_video(
-            avatar_id=member.avatar_id,
-            voice_id=member.voice_id,
-            input_text=member.intro_text,
-            title=f"{member.name} - Introduction",
-        )
-        member.video_id = video_id
-        member.video_status = "pending"
-        print(f"[BG] Video queued for {member.name}: video_id={video_id}")
-    except Exception as e:
-        member.video_status = "failed"
-        print(f"[BG] FAILED for {member.name}: {e}")
 
 
 @app.get("/api/team/{team_id}")
@@ -150,79 +117,14 @@ async def list_teams():
     }
 
 
-@app.post("/api/generate-intro")
-async def generate_intro(req: GenerateIntroRequest):
-    """Check video status for a team member. Videos are pre-generated at team creation."""
-    team = teams_db.get(req.team_id)
-    if not team:
-        raise HTTPException(status_code=404, detail="Team not found")
-
-    if req.member_index < 0 or req.member_index >= len(team.members):
-        raise HTTPException(status_code=400, detail="Invalid member index")
-
-    member = team.members[req.member_index]
-
-    # Already have the video URL cached
-    if member.video_url:
-        return {
-            "video_id": member.video_id,
-            "video_url": member.video_url,
-            "status": "completed",
-            "member_name": member.name,
-        }
-
-    # Video generation was kicked off — check latest status from HeyGen
-    if member.video_id:
-        try:
-            status_data = await heygen.get_video_status(member.video_id)
-            current_status = status_data.get("status", "unknown")
-            member.video_status = current_status
-            if current_status == "completed":
-                member.video_url = status_data.get("video_url")
-            return {
-                "video_id": member.video_id,
-                "video_url": member.video_url,
-                "status": current_status,
-                "member_name": member.name,
-            }
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"HeyGen API error: {str(e)}")
-
-    # Edge case: video generation hasn't started yet (e.g. API was slow)
-    return {
-        "video_id": None,
-        "video_url": None,
-        "status": "pending",
-        "member_name": member.name,
-    }
-
-
-@app.get("/api/video-status/{video_id}")
-async def get_video_status(video_id: str):
-    """Check the status of a video generation."""
+@app.post("/api/streaming-token")
+async def create_streaming_token():
+    """Create a short-lived streaming token for the HeyGen Streaming Avatar SDK."""
     try:
-        status_data = await heygen.get_video_status(video_id)
+        token = await heygen.create_streaming_token()
+        return {"token": token}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"HeyGen API error: {str(e)}")
-
-    status = status_data.get("status", "unknown")
-    video_url = status_data.get("video_url")
-
-    # Update stored member if we find a match
-    for team in teams_db.values():
-        for member in team.members:
-            if member.video_id == video_id:
-                member.video_status = status
-                if status == "completed" and video_url:
-                    member.video_url = video_url
-                break
-
-    return {
-        "video_id": video_id,
-        "status": status,
-        "video_url": video_url,
-        "thumbnail_url": status_data.get("thumbnail_url"),
-    }
 
 
 if __name__ == "__main__":

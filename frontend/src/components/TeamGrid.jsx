@@ -1,19 +1,12 @@
 import { useState } from "react";
 import MemberCard from "./MemberCard";
-import VideoModal from "./VideoModal";
+import StreamingModal from "./StreamingModal";
 
 export default function TeamGrid({ team }) {
   const [activeMember, setActiveMember] = useState(null);
-  const [activeVideoUrl, setActiveVideoUrl] = useState(null);
-
-  const handlePlay = (member, videoUrl) => {
-    setActiveMember(member);
-    setActiveVideoUrl(videoUrl);
-  };
 
   const handleClose = () => {
     setActiveMember(null);
-    setActiveVideoUrl(null);
   };
 
   return (
@@ -27,17 +20,14 @@ export default function TeamGrid({ team }) {
           <MemberCard
             key={index}
             member={member}
-            teamId={team.team_id}
-            memberIndex={index}
-            onPlay={handlePlay}
+            onClick={setActiveMember}
           />
         ))}
       </div>
 
-      {activeMember && activeVideoUrl && (
-        <VideoModal
+      {activeMember && (
+        <StreamingModal
           member={activeMember}
-          videoUrl={activeVideoUrl}
           onClose={handleClose}
         />
       )}
